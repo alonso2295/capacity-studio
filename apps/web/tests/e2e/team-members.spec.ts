@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("muestra el formulario de miembros sin scroll horizontal en móvil", async ({ page }) => {
   await page.route("**/api/v1/catalogs/professional-roles", async (route) => {

@@ -20,6 +20,8 @@ import type {
   SquadFormValues,
   SquadStatus,
 } from "@/lib/types";
+import { clearStoredAuthorization, getStoredAuthorization } from "@/lib/auth";
+import type { AuthenticatedUser } from "@/lib/auth";
 
 export type MetricsDashboardFilters = {
   vendor_id?: string;
@@ -38,16 +40,26 @@ export class ApiError extends Error {
   }
 }
 
-function headers(): HeadersInit {
-  const role = process.env.NEXT_PUBLIC_DEV_USER_ROLE;
+function headers(authorization = getStoredAuthorization()): HeadersInit {
   return {
     "Content-Type": "application/json",
-    ...(role ? { "X-User-Role": role } : {}),
+    ...(authorization ? { Authorization: authorization } : {}),
   };
+}
+
+function redirectToLogin(): void {
+  clearStoredAuthorization();
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") window.location.assign("/login");
+}
+
+function getErrorDetail(body: { detail?: string | { msg?: string }[] } | null): string {
+  if (Array.isArray(body?.detail)) return body.detail.map((item) => item.msg).filter(Boolean).join(". ");
+  return body?.detail ?? "No se pudo completar la operación";
 }
 
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, { headers: headers(), cache: "no-store" });
+  if (response.status === 401) redirectToLogin();
   if (!response.ok) {
     throw new ApiError(response.status, "No se pudo cargar la información");
   }
@@ -60,11 +72,22 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
     headers: { ...headers(), ...(init.headers ?? {}) },
   });
   const body = response.status === 204 ? undefined : ((await response.json()) as T & { detail?: string | { msg?: string }[] });
+  if (response.status === 401) redirectToLogin();
   if (!response.ok) {
     const detail = Array.isArray(body?.detail) ? body.detail.map((item) => item.msg).filter(Boolean).join(". ") : body?.detail;
     throw new ApiError(response.status, detail ?? "No se pudo completar la operación");
   }
   return body as T;
+}
+
+export async function verifyCredentials(authorization: string): Promise<AuthenticatedUser> {
+  const response = await fetch(`${apiUrl}/api/v1/auth/verify`, {
+    headers: headers(authorization),
+    cache: "no-store",
+  });
+  const body = (await response.json().catch(() => null)) as (AuthenticatedUser & { detail?: string }) | null;
+  if (!response.ok) throw new ApiError(response.status, body?.detail ?? "No se pudo validar la sesión");
+  return body as AuthenticatedUser;
 }
 
 export function getProfessionalRoles() {
@@ -237,6 +260,7 @@ export async function downloadAssignmentsExcel(
     headers: headers(),
     cache: "no-store",
   });
+  if (response.status === 401) redirectToLogin();
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: string } | null;
     throw new ApiError(response.status, body?.detail ?? "No se pudo descargar el archivo Excel");

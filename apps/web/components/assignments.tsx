@@ -29,9 +29,6 @@ export function AssignmentsList() {
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<AssignmentSortBy>(defaultSortBy);
   const [sortDirection, setSortDirection] = useState<AssignmentSortDirection>(defaultSortDirection);
-  const [isUnauthorized] = useState(
-    () => process.env.NEXT_PUBLIC_DEV_USER_ROLE === "Miembro de Equipo" || process.env.NEXT_PUBLIC_DEV_USER_ROLE === "Focal Proveedor",
-  );
   const queryClient = useQueryClient();
   const assignmentOptions: AssignmentQueryOptions = {
     page: view === "table" ? page : 1,
@@ -122,18 +119,6 @@ export function AssignmentsList() {
   function onSaved() {
     setFormOpen(false);
     setEditing(undefined);
-  }
-
-  if (isUnauthorized) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-12">
-        <section className="w-full max-w-xl rounded-card border border-border bg-white p-6 shadow-subtle sm:p-10" role="alert">
-          <p className="text-sm font-semibold text-danger">Acceso restringido</p>
-          <h1 className="mt-2 text-2xl font-bold">No puedes administrar asignaciones</h1>
-          <p className="mt-3 text-text-secondary">Esta operación requiere el rol Chapter Lead.</p>
-        </section>
-      </main>
-    );
   }
 
   return (

@@ -1,65 +1,52 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
-import time
+import secrets
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError, VerifyMismatchError
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from .config import Settings, get_settings
 from .schemas import CurrentUser
 
+basic_security = HTTPBasic(auto_error=False)
+password_hasher = PasswordHasher()
 
-def _decode_hs256(token: str, secret: str) -> dict:
-    parts = token.split(".")
-    if len(parts) != 3:
-        raise ValueError("Formato de token inválido")
-    header_segment, payload_segment, signature_segment = parts
 
-    def decode_segment(segment: str) -> bytes:
-        return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+def _authentication_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Autenticacion requerida",
+        headers={"WWW-Authenticate": "Basic"},
+    )
 
-    header = json.loads(decode_segment(header_segment))
-    if header.get("alg") != "HS256":
-        raise ValueError("Algoritmo no soportado")
-    expected = hmac.new(
-        secret.encode(),
-        f"{header_segment}.{payload_segment}".encode(),
-        hashlib.sha256,
-    ).digest()
-    if not hmac.compare_digest(expected, decode_segment(signature_segment)):
-        raise ValueError("Firma inválida")
-    payload = json.loads(decode_segment(payload_segment))
-    if payload.get("exp") and payload["exp"] < time.time():
-        raise ValueError("Token expirado")
-    return payload
+
+def _is_valid_credential(credentials: HTTPBasicCredentials, settings: Settings) -> bool:
+    username_matches = secrets.compare_digest(credentials.username, settings.app_auth_username)
+    if not username_matches:
+        return False
+    try:
+        return password_hasher.verify(settings.app_auth_password_hash, credentials.password)
+    except (VerifyMismatchError, VerificationError):
+        return False
 
 
 async def get_current_user(
     request: Request,
-    authorization: str | None = Header(default=None),
+    credentials: HTTPBasicCredentials | None = Depends(basic_security),
     settings: Settings = Depends(get_settings),
 ) -> CurrentUser:
-    # El bypass local es únicamente para desarrollo; producción exige JWT.
-    dev_role = request.headers.get("X-User-Role")
     if settings.environment != "production":
+        # Solo desarrollo: permite levantar el prototipo sin configurar secretos.
+        # X-User-Role nunca se consulta en produccion.
+        dev_role = request.headers.get("X-User-Role")
         return CurrentUser(user_id="local-user", role=dev_role or "Chapter Lead")
 
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticación requerida")
-    if not settings.supabase_jwt_secret:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticación no configurada")
-    try:
-        payload = _decode_hs256(authorization.removeprefix("Bearer ").strip(), settings.supabase_jwt_secret)
-    except (ValueError, json.JSONDecodeError, KeyError, TypeError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido") from None
+    if credentials is None or not _is_valid_credential(credentials, settings):
+        raise _authentication_error()
 
-    role = payload.get("app_metadata", {}).get("role") or payload.get("role")
-    if not role:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El usuario no tiene un rol asignado")
-    return CurrentUser(user_id=str(payload.get("sub", "")), role=role)
+    return CurrentUser(user_id=settings.app_auth_username, role="Chapter Lead")
 
 
 async def require_chapter_lead(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:

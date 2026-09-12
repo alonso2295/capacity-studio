@@ -54,9 +54,6 @@ export function MemberForm({ member }: MemberFormProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [selectedEmploymentType, setSelectedEmploymentType] = useState<"PLANILLA" | "TERCERIZADO">(member?.employment_type ?? "PLANILLA");
-  const [isUnauthorized] = useState(
-    () => process.env.NEXT_PUBLIC_DEV_USER_ROLE === "Miembro de Equipo" || process.env.NEXT_PUBLIC_DEV_USER_ROLE === "Focal Proveedor",
-  );
   const roles = useQuery({ queryKey: ["professional-roles"], queryFn: getProfessionalRoles });
   const vendors = useQuery({ queryKey: ["vendors"], queryFn: getVendors });
   const {
@@ -142,18 +139,6 @@ export function MemberForm({ member }: MemberFormProps) {
     setSubmitError(null);
     setSuccess(false);
     mutation.mutate(values);
-  }
-
-  if (isUnauthorized) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-12">
-        <section className="w-full max-w-xl rounded-card border border-border bg-white p-6 shadow-subtle sm:p-10" role="alert">
-          <p className="text-sm font-semibold text-danger">Acceso restringido</p>
-          <h1 className="mt-2 text-2xl font-bold">No puedes administrar miembros</h1>
-          <p className="mt-3 text-text-secondary">Esta operación requiere el rol Chapter Lead.</p>
-        </section>
-      </main>
-    );
   }
 
   return (

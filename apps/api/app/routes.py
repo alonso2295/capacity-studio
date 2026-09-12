@@ -61,7 +61,12 @@ from .schemas import (
     SquadUpdate,
 )
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(get_current_user)])
+
+
+@router.get("/auth/verify", response_model=CurrentUser)
+def verify_auth(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    return user
 
 
 def _current_affiliation(member: TeamMember) -> MemberVendorAffiliation | None:

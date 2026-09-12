@@ -30,8 +30,22 @@ class Settings:
         else:
             raise RuntimeError("La configuración de Supabase es obligatoria; no se permite usar SQLite")
         self.environment = getenv("ENVIRONMENT", "development")
-        self.supabase_jwt_secret = getenv("SUPABASE_JWT_SECRET", "")
         self.frontend_origin = getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+        self.app_auth_username = getenv("APP_AUTH_USERNAME", "")
+        self.app_auth_password_hash = getenv("APP_AUTH_PASSWORD_HASH", "")
+        if self.environment == "production":
+            missing = [
+                name
+                for name, value in (
+                    ("APP_AUTH_USERNAME", self.app_auth_username),
+                    ("APP_AUTH_PASSWORD_HASH", self.app_auth_password_hash),
+                )
+                if not value
+            ]
+            if missing:
+                raise RuntimeError(
+                    "Faltan variables obligatorias de autenticacion en produccion: " + ", ".join(missing)
+                )
 
 
 @lru_cache

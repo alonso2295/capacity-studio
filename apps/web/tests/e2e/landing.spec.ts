@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const landingOptions = [
   { label: "Gestionar miembros", href: "/members", description: "Consulta y administra los miembros del equipo." },
