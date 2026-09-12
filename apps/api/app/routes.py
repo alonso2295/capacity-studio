@@ -1,9 +1,13 @@
 import unicodedata
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from io import BytesIO
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
+from openpyxl import Workbook
+from openpyxl.styles import Font
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
@@ -262,24 +266,15 @@ def list_assignment_candidates(
     ]
 
 
-@router.get("/assignments", response_model=AssignmentPage)
-def list_assignments(
-    search: str = Query(default="", max_length=120),
-    vendor_id: str | None = Query(default=None, max_length=36),
-    professional_role_id: str | None = Query(default=None, max_length=36),
-    assigned_squad_id: str | None = Query(default=None, max_length=36),
-    _: CurrentUser = Depends(require_chapter_lead),
-    db: Session = Depends(get_db),
-    start_date: date | None = None,
-    end_date: date | None = None,
-    member_resigned: bool | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-    sort_by: AssignmentSortBy = "start_date",
-    sort_direction: AssignmentSortDirection = "desc",
-) -> AssignmentPage:
-    if page < 1 or page_size < 1 or page_size > 100:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Los parámetros de paginación no son válidos")
+def _assignment_query(
+    search: str,
+    vendor_id: str | None,
+    professional_role_id: str | None,
+    assigned_squad_id: str | None,
+    start_date: date | None,
+    end_date: date | None,
+    member_resigned: bool | None,
+):
     assigned_squad = aliased(Squad)
     executor_squad = aliased(Squad)
     query = (
@@ -330,15 +325,54 @@ def list_assignments(
         "end_date": Assignment.end_date,
         "allocation_percentage": Assignment.allocation_percentage,
     }
+    return query, sort_expressions
+
+
+def _assignment_ordered_query(
+    query,
+    sort_expressions,
+    sort_by: AssignmentSortBy,
+    sort_direction: AssignmentSortDirection,
+):
     if sort_by not in sort_expressions or sort_direction not in ("asc", "desc"):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Los parámetros de ordenamiento no son válidos")
     sort_expression = sort_expressions[sort_by]
     ordered_expression = sort_expression.asc() if sort_direction == "asc" else sort_expression.desc()
+    return query.order_by(ordered_expression, Assignment.id.asc())
+
+
+@router.get("/assignments", response_model=AssignmentPage)
+def list_assignments(
+    search: str = Query(default="", max_length=120),
+    vendor_id: str | None = Query(default=None, max_length=36),
+    professional_role_id: str | None = Query(default=None, max_length=36),
+    assigned_squad_id: str | None = Query(default=None, max_length=36),
+    _: CurrentUser = Depends(require_chapter_lead),
+    db: Session = Depends(get_db),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    member_resigned: bool | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    sort_by: AssignmentSortBy = "start_date",
+    sort_direction: AssignmentSortDirection = "desc",
+) -> AssignmentPage:
+    if page < 1 or page_size < 1 or page_size > 100:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Los parámetros de paginación no son válidos")
+    query, sort_expressions = _assignment_query(
+        search,
+        vendor_id,
+        professional_role_id,
+        assigned_squad_id,
+        start_date,
+        end_date,
+        member_resigned,
+    )
     total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
     total_pages = (total + page_size - 1) // page_size
     assignments = list(
         db.scalars(
-            query.order_by(ordered_expression, Assignment.id.asc())
+            _assignment_ordered_query(query, sort_expressions, sort_by, sort_direction)
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -349,6 +383,97 @@ def list_assignments(
         page=page,
         page_size=page_size,
         total_pages=total_pages,
+    )
+
+
+ASSIGNMENT_EXPORT_HEADERS = [
+    "DNI",
+    "Nombre Completo",
+    "Proveedor",
+    "Rol",
+    "Squad Asignado",
+    "Proyecto",
+    "Fecha Inicio",
+    "Fecha Fin",
+    "% asignado",
+]
+
+
+def _assignment_export_content(assignments: list[Assignment]) -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    if worksheet is None:
+        raise RuntimeError("No se pudo crear la hoja de asignaciones")
+    worksheet.title = "Asignaciones"
+    worksheet.append(ASSIGNMENT_EXPORT_HEADERS)
+
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True)
+    worksheet.freeze_panes = "A2"
+
+    for assignment in assignments:
+        worksheet.append(
+            [
+                assignment.member.dni,
+                _member_full_name(assignment.member),
+                assignment.vendor.name if assignment.vendor else "Planilla",
+                assignment.member.professional_role.name,
+                assignment.assigned_squad.name,
+                assignment.project_code,
+                assignment.start_date,
+                assignment.end_date,
+                float(assignment.allocation_percentage),
+            ]
+        )
+
+    for row in worksheet.iter_rows(min_row=2, min_col=7, max_col=8):
+        for cell in row:
+            cell.number_format = "yyyy-mm-dd"
+    for column in worksheet.iter_cols(min_col=9, max_col=9, min_row=2):
+        for cell in column:
+            cell.number_format = '0.##"%"'
+
+    widths = [14, 30, 24, 24, 24, 24, 14, 14, 14]
+    for index, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[chr(64 + index)].width = width
+
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+@router.get("/assignments/export")
+def export_assignments(
+    search: str = Query(default="", max_length=120),
+    vendor_id: str | None = Query(default=None, max_length=36),
+    professional_role_id: str | None = Query(default=None, max_length=36),
+    assigned_squad_id: str | None = Query(default=None, max_length=36),
+    _: CurrentUser = Depends(require_chapter_lead),
+    db: Session = Depends(get_db),
+    start_date: date | None = None,
+    end_date: date | None = None,
+    member_resigned: bool | None = None,
+    sort_by: AssignmentSortBy = "start_date",
+    sort_direction: AssignmentSortDirection = "desc",
+) -> Response:
+    query, sort_expressions = _assignment_query(
+        search,
+        vendor_id,
+        professional_role_id,
+        assigned_squad_id,
+        start_date,
+        end_date,
+        member_resigned,
+    )
+    assignments = list(
+        db.scalars(
+            _assignment_ordered_query(query, sort_expressions, sort_by, sort_direction)
+        )
+    )
+    return Response(
+        content=_assignment_export_content(assignments),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="assignments.xlsx"'},
     )
 
 

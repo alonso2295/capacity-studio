@@ -6,12 +6,31 @@ El módulo de asignaciones se consume desde el frontend mediante FastAPI. El nav
 
 | Método | Ruta | Descripción |
 |---|---|---|
+| GET | `/api/v1/assignments/export?search=&vendor_id=&professional_role_id=&assigned_squad_id=&start_date=&end_date=&member_resigned=&sort_by=&sort_direction=` | Descarga todas las asignaciones coincidentes en formato XLSX, sin paginacion, usando los mismos filtros y ordenamiento del listado. |
 | GET | `/api/v1/assignments?search=&vendor_id=&professional_role_id=&assigned_squad_id=&start_date=&end_date=` | Lista asignaciones aplicando filtros combinables. `search` busca por DNI o nombre completo; `assigned_squad_id` filtra por Squad Asignado y las fechas por intersección inclusiva del rango. |
 | GET | `/api/v1/assignments/candidates?search=` | Busca miembros activos para el modal e incluye proveedor vigente, rol y seniority. |
 | GET | `/api/v1/assignments/{id}` | Devuelve una asignación enriquecida. |
 | POST | `/api/v1/assignments` | Crea una asignación y captura el proveedor vigente del miembro. |
 | PATCH | `/api/v1/assignments/{id}` | Actualiza Squad, proyecto, fechas o porcentaje. El miembro/proveedor capturado no cambia. |
 | DELETE | `/api/v1/assignments/{id}` | Elimina físicamente la asignación y responde `204 No Content`. |
+
+## Exportar a Excel
+
+La ruta `GET /api/v1/assignments/export` requiere el rol `Chapter Lead` y acepta los filtros `search`, `vendor_id`, `professional_role_id`, `assigned_squad_id`, `start_date`, `end_date` y `member_resigned`. Tambien acepta `sort_by` y `sort_direction`; no acepta ni aplica `page` o `page_size`.
+
+La respuesta es un archivo `.xlsx` con una hoja llamada `Asignaciones` y estas columnas, en este orden:
+
+1. DNI
+2. Nombre Completo
+3. Proveedor
+4. Rol
+5. Squad Asignado
+6. Proyecto
+7. Fecha Inicio
+8. Fecha Fin
+9. % asignado
+
+Cuando el proveedor almacenado es nulo, la columna Proveedor muestra `Planilla`. Las fechas se entregan como fechas Excel con formato `yyyy-mm-dd` y el porcentaje conserva su valor numerico.
 
 ## Crear y editar
 

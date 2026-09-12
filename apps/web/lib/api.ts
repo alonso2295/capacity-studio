@@ -6,6 +6,8 @@ import type {
   AssignmentFormValues,
   AssignmentPage,
   AssignmentQueryOptions,
+  AssignmentSortBy,
+  AssignmentSortDirection,
   MemberFormValues,
   MemberFilters,
   MemberPage,
@@ -180,6 +182,28 @@ export function getAssignmentCandidates(search = "") {
   return get<AssignmentCandidate[]>(`/api/v1/assignments/candidates?search=${encodeURIComponent(search)}`);
 }
 
+function assignmentParams(
+  filters: Partial<AssignmentFilters>,
+  options: AssignmentQueryOptions,
+  includePagination = true,
+) {
+  const params = new URLSearchParams();
+  if (filters.search) params.set("search", filters.search);
+  if (filters.vendor_id) params.set("vendor_id", filters.vendor_id);
+  if (filters.professional_role_id) params.set("professional_role_id", filters.professional_role_id);
+  if (filters.assigned_squad_id) params.set("assigned_squad_id", filters.assigned_squad_id);
+  if (filters.start_date) params.set("start_date", filters.start_date);
+  if (filters.end_date) params.set("end_date", filters.end_date);
+  if (filters.member_resigned) params.set("member_resigned", filters.member_resigned);
+  if (includePagination) {
+    params.set("page", String(options.page ?? 1));
+    params.set("page_size", String(options.page_size ?? 20));
+  }
+  params.set("sort_by", options.sort_by ?? "start_date");
+  params.set("sort_direction", options.sort_direction ?? "desc");
+  return params;
+}
+
 export async function getAssignments(
   filters: Partial<AssignmentFilters> = {},
   options: AssignmentQueryOptions = {},
@@ -202,6 +226,24 @@ export async function getAssignments(
     return { items: response, total: response.length, page: 1, page_size: response.length || 20, total_pages: response.length ? 1 : 0 };
   }
   return response;
+}
+
+export async function downloadAssignmentsExcel(
+  filters: Partial<AssignmentFilters> = {},
+  options: Pick<AssignmentQueryOptions, "sort_by" | "sort_direction"> = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const params = assignmentParams(filters, options, false);
+  const response = await fetch(apiUrl + "/api/v1/assignments/export?" + params.toString(), {
+    headers: headers(),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new ApiError(response.status, body?.detail ?? "No se pudo descargar el archivo Excel");
+  }
+  const contentDisposition = response.headers.get("Content-Disposition");
+  const filename = contentDisposition?.match(/filename="?([^";]+)"?/)?.[1] ?? "assignments.xlsx";
+  return { blob: await response.blob(), filename };
 }
 
 export function getAssignment(id: string) {

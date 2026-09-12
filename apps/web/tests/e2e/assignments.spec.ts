@@ -386,3 +386,40 @@ test("pagina y ordena la tabla, conserva filtros y cambia a cards sin paginació
   await expect(page.getByRole("navigation", { name: "Paginación de asignaciones" })).toHaveCount(0);
   await expect(page.getByText("PROJ-42/ETL!", { exact: true })).toBeVisible();
 });
+
+test("descarga las asignaciones aplicando los filtros sin paginación", async ({ page }) => {
+  await mockCatalogs(page);
+  await page.route("**/api/v1/assignments**", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { items: [assignment], total: 1, page: 1, page_size: 20, total_pages: 1 } });
+    }
+  });
+  let exportRequestUrl = "";
+  await page.route("**/api/v1/assignments/export**", async (route) => {
+    exportRequestUrl = route.request().url();
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": 'attachment; filename="assignments.xlsx"',
+      },
+      body: "xlsx",
+    });
+  });
+
+  await page.goto("/assignments");
+  await page.getByLabel("Buscar por nombre o DNI").fill("Ana");
+  await page.getByLabel("Filtrar por proveedor").selectOption("vendor-1");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Descargar Excel" }).click();
+  const download = await downloadPromise;
+  const params = new URL(exportRequestUrl).searchParams;
+
+  expect(download.suggestedFilename()).toBe("assignments.xlsx");
+  expect(params.get("search")).toBe("Ana");
+  expect(params.get("vendor_id")).toBe("vendor-1");
+  expect(params.get("sort_by")).toBe("start_date");
+  expect(params.get("page")).toBeNull();
+  expect(params.get("page_size")).toBeNull();
+  await expect(page.getByRole("status")).toHaveText("Excel descargado.");
+});

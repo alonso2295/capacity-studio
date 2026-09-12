@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-import { ApiError, deleteAssignment, getAssignments, getProfessionalRoles, getProviders, getSquads } from "@/lib/api";
+import { ApiError, deleteAssignment, downloadAssignmentsExcel, getAssignments, getProfessionalRoles, getProviders, getSquads } from "@/lib/api";
 import type { Assignment, AssignmentFilters, AssignmentQueryOptions, AssignmentSortBy, AssignmentSortDirection, AssignmentView } from "@/lib/types";
 import { AssignmentForm } from "@/components/assignment-form";
 
@@ -23,6 +23,8 @@ export function AssignmentsList() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Assignment | undefined>();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [exportStatus, setExportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [exportError, setExportError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<AssignmentSortBy>(defaultSortBy);
@@ -68,6 +70,29 @@ export function AssignmentsList() {
     setSearchInput("");
     setPage(1);
     setFilters(emptyFilters);
+  }
+
+  async function exportToExcel() {
+    setExportStatus("loading");
+    setExportError(null);
+    try {
+      const { blob, filename } = await downloadAssignmentsExcel(filters, {
+        sort_by: sortBy,
+        sort_direction: sortDirection,
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      setExportStatus("success");
+    } catch (error) {
+      setExportStatus("error");
+      setExportError(error instanceof ApiError ? error.message : "No se pudo descargar el archivo Excel.");
+    }
   }
 
   function updateSort(nextSortBy: AssignmentSortBy) {
@@ -120,7 +145,14 @@ export function AssignmentsList() {
         <section className="mt-8 rounded-card border border-border bg-white p-4 shadow-subtle sm:p-6" aria-labelledby="assignment-filters-heading">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 id="assignment-filters-heading" className="text-xl font-bold">Buscar y filtrar</h2><p className="mt-1 text-sm text-text-secondary">Combina los criterios para encontrar una asignación.</p></div><div className="flex rounded-full border border-border p-1" aria-label="Vista de asignaciones"><button type="button" aria-pressed={view === "table"} onClick={() => setView("table")} className={`min-h-10 rounded-full px-4 text-sm font-semibold ${view === "table" ? "bg-brand-cyan-700 text-white" : "text-brand-cyan-700 hover:bg-surface-muted"}`}>Tabla</button><button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")} className={`min-h-10 rounded-full px-4 text-sm font-semibold ${view === "cards" ? "bg-brand-cyan-700 text-white" : "text-brand-cyan-700 hover:bg-surface-muted"}`}>Cards</button></div></div>
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3"><label className="block text-sm font-semibold">Nombre o DNI<input aria-label="Buscar por nombre o DNI" value={searchInput} onChange={(event) => { setSearchInput(event.target.value); updateFilter("search", event.target.value); }} className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-3 font-normal" placeholder="Ej. Ana o 12345678" /></label><label className="block text-sm font-semibold">Proveedor<select aria-label="Filtrar por proveedor" value={filters.vendor_id} onChange={(event) => updateFilter("vendor_id", event.target.value)} className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-3 font-normal"><option value="">Todos los proveedores</option>{providers.data?.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{!provider.is_active ? " · Inactivo" : ""}</option>)}</select></label><label className="block text-sm font-semibold">Rol<select aria-label="Filtrar por rol" value={filters.professional_role_id} onChange={(event) => updateFilter("professional_role_id", event.target.value)} className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-3 font-normal"><option value="">Todos los roles</option>{roles.data?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label><label className="block text-sm font-semibold">Squad Asignado<select aria-label="Filtrar por Squad Asignado" value={filters.assigned_squad_id} onChange={(event) => updateFilter("assigned_squad_id", event.target.value)} className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-3 font-normal"><option value="">Todos los Squads</option>{squads.data?.map((squad) => <option key={squad.id} value={squad.id}>{squad.name}{!squad.is_active ? " · Inactivo" : ""}</option>)}</select></label><label className="block text-sm font-semibold">Fecha inicio<input type="date" aria-label="Filtrar desde fecha de inicio" value={filters.start_date} onChange={(event) => updateFilter("start_date", event.target.value)} className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-3 font-normal" /></label><label className="block text-sm font-semibold">Fecha fin<input type="date" aria-label="Filtrar hasta fecha fin" value={filters.end_date} onChange={(event) => updateFilter("end_date", event.target.value)} className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-3 font-normal" /></label><label className="block text-sm font-semibold">Renuncia<select aria-label="Filtrar por renuncia" value={filters.member_resigned} onChange={(event) => updateFilter("member_resigned", event.target.value)} className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-3 font-normal"><option value="">Todas</option><option value="true">Miembro renunció</option><option value="false">Miembro activo en la asignación</option></select></label></div>
-          <button type="button" onClick={clearFilters} className="mt-4 text-sm font-semibold text-brand-cyan-700 hover:underline">Limpiar filtros</button>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={clearFilters} className="text-sm font-semibold text-brand-cyan-700 hover:underline">Limpiar filtros</button>
+            <button type="button" onClick={exportToExcel} disabled={exportStatus === "loading"} className="inline-flex min-h-10 items-center justify-center rounded-full border border-brand-cyan-700 px-4 text-sm font-semibold text-brand-cyan-700 hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60" aria-label="Descargar Excel">
+              {exportStatus === "loading" ? "Generando Excel..." : "Descargar Excel"}
+            </button>
+            {exportStatus === "success" && <span role="status" className="text-sm text-text-secondary">Excel descargado.</span>}
+            {exportStatus === "error" && <span role="alert" className="text-sm text-danger">{exportError}</span>}
+          </div>
         </section>
 
         <section className="mt-6 rounded-card border border-border bg-white p-4 shadow-subtle sm:p-6" aria-labelledby="assignment-list-heading">

@@ -12,3 +12,6 @@ test-results/
 .env
 .env.*
 !.env.example
+# Artefactos generados de Python
+*.egg-info/
+pytest-cache-files-*/

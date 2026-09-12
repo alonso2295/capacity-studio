@@ -1,8 +1,10 @@
 import asyncio
 from datetime import date
+from io import BytesIO
 
 import pytest
 from fastapi import HTTPException
+from openpyxl import load_workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -14,6 +16,7 @@ from app.routes import (
     create_assignment,
     create_member,
     delete_assignment,
+    export_assignments,
     get_metrics_dashboard,
     list_assignment_candidates,
     list_assignments,
@@ -575,3 +578,171 @@ def test_assignment_resignation_filter_capacity_and_independent_replacement(db: 
     assert replacement.member_id == replacement_member.id
     assert replacement.id != departing.id
     assert replacement.member_resigned is False
+
+
+def test_export_assignments_returns_filtered_xlsx_with_ordered_columns(db: Session) -> None:
+    user = CurrentUser(user_id="lead", role="Chapter Lead")
+    first = create_test_member(
+        db,
+        user,
+        dni="12345678",
+        first_name="Ana",
+        paternal_surname="Perez",
+        maternal_surname=None,
+        email="ana.export@example.com",
+    )
+    second = create_test_member(
+        db,
+        user,
+        dni="87654321",
+        first_name="Luis",
+        paternal_surname="Ruiz",
+        maternal_surname=None,
+        email="luis.export@example.com",
+    )
+    planilla = create_test_member(
+        db,
+        user,
+        dni="11223344",
+        first_name="Marta",
+        paternal_surname="Diaz",
+        maternal_surname=None,
+        email="marta.export@example.com",
+        employment_type="PLANILLA",
+        vendor_id=None,
+        professional_role_id="role-2",
+    )
+    create_assignment(
+        AssignmentCreate(
+            **assignment_payload(
+                first.id,
+                project_code="PROJECT-ANA",
+                start_date="2026-03-31",
+                end_date="2026-04-30",
+            )
+        ),
+        user,
+        db,
+    )
+    create_assignment(
+        AssignmentCreate(
+            **assignment_payload(
+                second.id,
+                project_code="PROJECT-LUIS",
+                start_date="2026-03-31",
+                end_date="2026-05-31",
+            )
+        ),
+        user,
+        db,
+    )
+    create_assignment(
+        AssignmentCreate(
+            **assignment_payload(
+                planilla.id,
+                assigned_squad_id="squad-2",
+                executor_squad_id="squad-2",
+                project_code="PROJECT-MARTA",
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+            )
+        ),
+        user,
+        db,
+    )
+
+    paged = list_assignments(
+        "",
+        "vendor-1",
+        None,
+        None,
+        user,
+        db,
+        page_size=1,
+        start_date=date(2026, 3, 31),
+        end_date=date(2026, 3, 31),
+    )
+    assert paged.total == 2
+
+    response = export_assignments(
+        search="",
+        vendor_id="vendor-1",
+        professional_role_id=None,
+        assigned_squad_id=None,
+        start_date=date(2026, 3, 31),
+        end_date=date(2026, 3, 31),
+        sort_by="member_dni",
+        sort_direction="asc",
+        _=user,
+        db=db,
+    )
+    workbook = load_workbook(BytesIO(response.body), data_only=True)
+    worksheet = workbook["Asignaciones"]
+    rows = list(worksheet.values)
+
+    assert response.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert response.headers["content-disposition"] == 'attachment; filename="assignments.xlsx"'
+    assert rows[0] == (
+        "DNI",
+        "Nombre Completo",
+        "Proveedor",
+        "Rol",
+        "Squad Asignado",
+        "Proyecto",
+        "Fecha Inicio",
+        "Fecha Fin",
+        "% asignado",
+    )
+    normalized_rows = [
+        row[:6] + (row[6].date(), row[7].date(), row[8])
+        for row in rows[1:]
+    ]
+    assert normalized_rows == [
+        ("12345678", "Ana Perez", "Proveedor Uno", "Data Engineer", "Squad Data", "PROJECT-ANA", date(2026, 3, 31), date(2026, 4, 30), 60),
+        ("87654321", "Luis Ruiz", "Proveedor Uno", "Data Engineer", "Squad Data", "PROJECT-LUIS", date(2026, 3, 31), date(2026, 5, 31), 60),
+    ]
+    assert worksheet["G2"].number_format == "yyyy-mm-dd"
+    assert worksheet["I2"].number_format == '0.##"%"'
+
+    all_rows = list(
+        load_workbook(
+            BytesIO(
+                export_assignments(
+                    search="",
+                    vendor_id=None,
+                    professional_role_id=None,
+                    assigned_squad_id=None,
+                    _=user,
+                    db=db,
+                ).body
+            ),
+            data_only=True,
+        )["Asignaciones"].values
+    )
+    assert any(row[0] == "11223344" and row[2] == "Planilla" for row in all_rows[1:])
+
+
+def test_export_assignments_returns_empty_workbook_for_no_matches_and_validates_dates(db: Session) -> None:
+    user = CurrentUser(user_id="lead", role="Chapter Lead")
+    response = export_assignments(
+        search="does-not-exist",
+        vendor_id=None,
+        professional_role_id=None,
+        assigned_squad_id=None,
+        _=user,
+        db=db,
+    )
+    worksheet = load_workbook(BytesIO(response.body), data_only=True)["Asignaciones"]
+    assert worksheet.max_row == 1
+
+    with pytest.raises(HTTPException, match="filtro"):
+        export_assignments(
+            search="",
+            vendor_id=None,
+            professional_role_id=None,
+            assigned_squad_id=None,
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 1, 1),
+            _=user,
+            db=db,
+        )
