@@ -1,0 +1,60 @@
+schema: spec-driven
+
+context: |
+  Producto: Capacity Studio, aplicación web interna para gestionar la asignación
+  de miembros de Ingeniería de Datos en distintos Squads.
+
+  Stack tecnológico:
+  - Frontend: Next.js App Router con TypeScript, desplegado en Vercel.
+  - UI: Tailwind CSS y shadcn/ui con enfoque mobile-first.
+  - Datos en frontend: TanStack Query, React Hook Form y Zod.
+  - Backend: FastAPI con Pydantic, desplegado como servicio separado.
+  - Persistencia: PostgreSQL hosteado en Supabase.
+  - Acceso a datos: SQLAlchemy 2.0 y Alembic para migraciones.
+  - Calidad: TypeScript strict, ESLint, Ruff, mypy, pytest y Playwright.
+  - Entorno local: Docker Compose.
+  - Integración y despliegue: GitHub Actions.
+
+  Arquitectura: el frontend consume una API REST del backend. La API es la
+  responsable de las reglas de negocio y autorización. Las credenciales de
+  base de datos y secretos no se exponen al navegador.
+
+  Dominio: los miembros pueden ser de planilla o tercerizados. Un tercerizado
+  pertenece a una empresa proveedora y puede cambiar de proveedor con el tiempo.
+  Las asignaciones se definen por rangos de fechas y porcentajes de capacidad.
+  Un miembro puede tener varias asignaciones simultáneas, pero la capacidad
+  acumulada durante cualquier fecha no puede superar el 100%.
+
+  Acceso: Supabase Auth gestiona autenticación con email y contraseña. Cada
+  persona tiene exactamente un rol. Chapter Lead tiene alcance global; Focal
+  Proveedor tiene alcance limitado a su proveedor; Miembro de Equipo tiene
+  alcance limitado a su propio registro.
+
+  Convenciones: conservar registros históricos mediante desactivación o rangos
+  de vigencia; no eliminar entidades referenciadas por reportes históricos.
+
+  Design system: todas las páginas frontend deben seguir `docs/design-system.md`
+  y la capability `design-system`. Las excepciones visuales o de interacción
+  deben documentarse explícitamente en la spec del módulo correspondiente.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
