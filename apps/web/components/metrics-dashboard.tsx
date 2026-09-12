@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
 import { getMetricsDashboard } from "@/lib/api";
-import type { MetricsDashboard as MetricsDashboardData, MetricsRoleCount } from "@/lib/types";
+import type { MetricsAssignmentCard, MetricsDashboard as MetricsDashboardData, MetricsRoleCount } from "@/lib/types";
 
 function currentPeriod() {
   const today = new Date();
@@ -193,14 +193,29 @@ function assignmentGroupName(card: MetricsDashboardData["assignment_cards"][numb
   return perspective === "assigned" ? card.assigned_squad_name : card.executor_squad_name;
 }
 
-function AssignmentCard({ card }: { card: MetricsDashboardData["assignment_cards"][number] }) {
+const assignmentCardCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+function compareAssignmentCards(left: MetricsAssignmentCard, right: MetricsAssignmentCard) {
+  const roleComparison = assignmentCardCollator.compare(left.professional_role_name, right.professional_role_name);
+  if (roleComparison !== 0) return roleComparison;
+
+  const vendorComparison = assignmentCardCollator.compare(left.vendor_name, right.vendor_name);
+  if (vendorComparison !== 0) return vendorComparison;
+
+  const memberComparison = assignmentCardCollator.compare(left.member_full_name, right.member_full_name);
+  if (memberComparison !== 0) return memberComparison;
+
+  return assignmentCardCollator.compare(left.id, right.id);
+}
+
+function AssignmentCard({ card }: { card: MetricsAssignmentCard }) {
   return (
     <article className="min-w-0 rounded-lg border border-border bg-white px-3 py-3 transition hover:border-brand-cyan-700">
       <h4 className="truncate text-sm font-semibold leading-5 text-text-primary">{card.member_full_name}</h4>
       <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-        <div className="min-w-0"><dt className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Rol</dt><dd className="mt-0.5 truncate font-medium text-text-primary">{card.professional_role_name}</dd></div>
-        <div className="min-w-0"><dt className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Proveedor</dt><dd className="mt-0.5 truncate font-medium text-text-primary">{card.vendor_name}</dd></div>
-        <div className="col-span-2 min-w-0"><dt className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Proyecto</dt><dd className="mt-0.5 truncate font-medium text-text-primary" title={card.project_code}>{card.project_code}</dd></div>
+        <div className="min-w-0"><dt className="sr-only">Rol</dt><dd className="truncate font-medium text-text-primary">{card.professional_role_name}</dd></div>
+        <div className="min-w-0"><dt className="sr-only">Proveedor</dt><dd className="truncate font-medium text-text-primary">{card.vendor_name}</dd></div>
+        <div className="col-span-2 min-w-0"><dt className="sr-only">Proyecto</dt><dd className="truncate font-medium text-text-primary" title={card.project_code}>{card.project_code}</dd></div>
         <div className="min-w-0"><dt className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Capacidad</dt><dd className="mt-0.5 font-semibold text-text-primary">{card.allocation_percentage}%</dd></div>
         <div className="min-w-0"><dt className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Squad Ejecutor</dt><dd className="mt-0.5 truncate font-medium text-text-primary">{card.executor_squad_name}</dd></div>
       </dl>
@@ -226,7 +241,9 @@ function AssignmentCards({
       group.cards.push(card);
       grouped.set(key, group);
     });
-    return [...grouped.values()].sort((left, right) => left.name.localeCompare(right.name));
+    return [...grouped.values()]
+      .sort((left, right) => assignmentCardCollator.compare(left.name, right.name))
+      .map((group) => ({ ...group, cards: [...group.cards].sort(compareAssignmentCards) }));
   }, [data.assignment_cards, perspective]);
 
   const roleSummary = (cards: MetricsDashboardData["assignment_cards"]) => {

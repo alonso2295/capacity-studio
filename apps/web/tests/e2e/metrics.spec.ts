@@ -34,8 +34,21 @@ function dashboardResponse(quarter: number) {
         vendor_name: "Planilla",
         project_code: "PROJECT-ARCH",
         allocation_percentage: 40,
-        assigned_squad_id: "squad-2",
-        assigned_squad_name: "Data Analytics",
+        assigned_squad_id: "squad-1",
+        assigned_squad_name: "Data Platform",
+        executor_squad_id: "squad-2",
+        executor_squad_name: "Data Analytics",
+      },
+      {
+        id: "assignment-3",
+        member_full_name: "Marta Ríos Silva",
+        professional_role_name: "Data Architect",
+        vendor_id: "vendor-2",
+        vendor_name: "Proveedor Dos",
+        project_code: "PROJECT-ARCH-2",
+        allocation_percentage: 30,
+        assigned_squad_id: "squad-1",
+        assigned_squad_name: "Data Platform",
         executor_squad_id: "squad-2",
         executor_squad_name: "Data Analytics",
       },
@@ -57,10 +70,26 @@ test("consulta métricas, filtra el trimestre, muestra detalle y vuelve a gesti�
   await page.goto("/metrics");
   await expect(page.getByRole("heading", { name: "Métricas y visualizaciones" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Data Platform" }).last()).toBeVisible();
-  await expect(page.getByRole("article").filter({ hasText: "Data Platform" }).getByText("Data Engineer", { exact: true }).first()).toBeVisible();
+  const assignedGroup = page.locator('section[aria-labelledby^="assignment-group-"]').filter({ has: page.locator("h3").filter({ hasText: "Data Platform" }) });
+  const assignedCards = assignedGroup.getByRole("article");
+  await expect(assignedCards).toHaveCount(3);
+  await expect(assignedCards.nth(0)).toContainText("PROJECT-ARCH");
+  await expect(assignedCards.nth(0)).toContainText("Planilla");
+  await expect(assignedCards.nth(1)).toContainText("PROJECT-ARCH-2");
+  await expect(assignedCards.nth(1)).toContainText("Proveedor Dos");
+  await expect(assignedCards.nth(2)).toContainText("PROJ-42/ETL!");
+  await expect(assignedCards.nth(2)).toContainText("Proveedor Uno");
   await expect(page.getByRole("heading", { name: "Ana Pérez Gómez" })).toBeVisible();
   await expect(page.getByText("Planilla", { exact: true })).toBeVisible();
   await expect(page.getByText("PROJ-42/ETL!", { exact: true })).toBeVisible();
+  await expect(assignedCards.getByText("Data Architect", { exact: true }).first()).toBeVisible();
+  await expect(assignedCards.getByText("Proveedor Dos", { exact: true })).toBeVisible();
+  await expect(assignedCards.getByText("PROJECT-ARCH-2", { exact: true })).toBeVisible();
+  for (const label of ["Rol", "Proveedor", "Proyecto"]) {
+    const hiddenLabels = page.locator("dt").filter({ hasText: label });
+    await expect(hiddenLabels).toHaveCount(3);
+    await expect(hiddenLabels.first()).toHaveClass(/sr-only/);
+  }
   await expect(page.getByText("DNI", { exact: true })).toHaveCount(0);
 
   await page.getByLabel("Filtro por proveedor").selectOption("vendor-1");
@@ -76,6 +105,12 @@ test("consulta métricas, filtra el trimestre, muestra detalle y vuelve a gesti�
   await page.getByRole("tab", { name: "Squad Ejecutor" }).click();
   await expect(page.getByRole("tab", { name: "Squad Ejecutor" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("heading", { name: "Data Analytics" }).last()).toBeVisible();
+  const executorGroup = page.locator('section[aria-labelledby^="assignment-group-"]').filter({ has: page.locator("h3").filter({ hasText: "Data Analytics" }) });
+  const executorCards = executorGroup.getByRole("article");
+  await expect(executorCards).toHaveCount(3);
+  await expect(executorCards.nth(0)).toContainText("PROJECT-ARCH");
+  await expect(executorCards.nth(1)).toContainText("PROJECT-ARCH-2");
+  await expect(executorCards.nth(2)).toContainText("PROJ-42/ETL!");
 
   await page.getByRole("button", { name: /Sin asignación: 2/ }).click();
   const dialog = page.getByRole("dialog");
